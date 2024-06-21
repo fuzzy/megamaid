@@ -22,23 +22,23 @@ LOG_Q = Queue()
 
 
 def main(args):
-    print(args)
+    logger_t = Logger(LOG_Q, args.tui, args.gui)
+    logger_t.start()
 
-    print("Starting SiteScrubber thread")
+    LOG_Q.put("Starting SiteScrubber thread")
     link_t = SiteScrubber(SITE_Q, LINK_Q, LOG_Q, args.recursive)
     link_t.start()
 
-    print("Starting LinkFilter thread")
+    LOG_Q.put("Starting LinkFilter thread")
     proxy_t = LinkFilter(LINK_Q, FETCH_Q, LOG_Q, args.pattern)
     proxy_t.start()
 
-    print("Starting LinkFetcher thread")
+    LOG_Q.put("Starting LinkFetcher thread")
     fetch_t = LinkFetcher(FETCH_Q, LOG_Q)
     fetch_t.start()
 
-    frameinfo = getframeinfo(currentframe())
     for url in args.urls:
-        print(f"{IN}SITE_Q {__name__:20} {frameinfo.lineno:4} {url}")
+        LOG_Q.put(f"-> SITE_Q {url}")
         SITE_Q.put(url)
 
     # Give the threads a bit to get started
@@ -46,11 +46,18 @@ def main(args):
     try:
         # drop in our exit signal
         SITE_Q.put("EXIT")
+
         # and wait for the cleanup
         link_t.join()
         proxy_t.join()
         fetch_t.join()
+
+        # and finally, kill the logger
+        LOG_Q.put("EXIT")
+        logger_t.join()
     except:
+        SITE_Q.put("EXIT")
+        LOG_Q.put("EXIT")
         sys.exit(1)
 
 

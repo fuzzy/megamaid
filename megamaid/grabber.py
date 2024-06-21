@@ -4,9 +4,6 @@
 import re
 import threading
 
-# debugging information
-from inspect import currentframe, getframeinfo
-
 from urllib.parse import urlparse
 from html.parser import HTMLParser
 from http.client import HTTPSConnection
@@ -44,15 +41,9 @@ class LinkParser(HTMLParser):
                     and not attrs[0][1].startswith("ftp")
                 ):
                     s = normalize_url(f"{self.site}/{attrs[0][1]}")
-                    # frameinfo = getframeinfo(currentframe())
-                    # print(
-                    #    f"{OUT} {_S}SITE_Q {__name__:20} {frameinfo.lineno:4} {s}{_E}"
-                    # )
                     self.site_q.put(s)
             else:
                 url = normalize_url(f"{self.site}/{attrs[0][1]}")
-                #  frameinfo = getframeinfo(currentframe())
-                # print(f"{OUT} {_L}LINK_Q {__name__:20} {frameinfo.lineno:4} {url}{_E}")
                 self.link_q.put(url)
 
 
@@ -66,25 +57,21 @@ class LinkFilter(threading.Thread):
         self.pattern = pattern
 
     def run(self):
-        # frameinfo = getframeinfo(currentframe())
         while True:
             link = self.link_q.get()
             if link == "EXIT":
                 self.link_q.put("EXIT")
                 self.fetch_q.put("EXIT")
                 return
-            # print(f"{IN} {_L}LINK_Q {__name__:20} {frameinfo.lineno:4} {link}{_E}")
             if self.pattern:
                 for patt in self.pattern:
                     if re.compile(patt).match(link):
-                        # print(
-                        #     f"{YAY} {_C}FETCH_Q {__name__:20} {frameinfo.lineno:4} {link}{_E}"
-                        # )
+                        self.log_q.put(
+                            {"level": "debug", "message": f"-> FETCH_Q {link}"}
+                        )
                         self.fetch_q.put(link)
             elif not self.pattern:
-                # print(
-                #     f"{YAY} {_C}FETCH_Q {__name__:20} {frameinfo.lineno:4} {link}{_E}"
-                # )
+                self.log_q.put({"level": "debug", "message": f"-> FETCH_Q {link}"})
                 self.fetch_q.put(link)
 
 
@@ -98,10 +85,8 @@ class SiteScrubber(threading.Thread):
         self.recursive = recursive
 
     def run(self):
-        # frameinfo = getframeinfo(currentframe())
         while True:
             site = self.site_q.get()
-            # print(f"{OUT} {_S}SITE_Q {__name__:20} {frameinfo.lineno:4} {site}{_E}")
             parser = LinkParser()
             if site == "EXIT":
                 self.site_q.put("EXIT")

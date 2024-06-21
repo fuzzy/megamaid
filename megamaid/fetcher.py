@@ -45,12 +45,10 @@ class LinkFetcher(threading.Thread):
                 _fetch = False
 
         if _fetch:
-            # write the file to disk
             with open(url.hostname + url.path, "wb+") as fp:
                 fp.write(http_get(site))
 
-            frameinfo = getframeinfo(currentframe())
-            print(f"{YAY} DLOAD {_F}{__name__:20} {frameinfo.lineno:4} {site}{_E}")
+            self.log_q.put(f"DLOAD {site}")
 
     def run(self):
         while True:
