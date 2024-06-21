@@ -25,16 +25,16 @@ def main(args):
     logger_t = Logger(LOG_Q, args.tui, args.gui)
     logger_t.start()
 
-    LOG_Q.put("Starting SiteScrubber thread")
+    LOG_Q.put({"level": "debug", "message": "Starting SiteScrubber thread"})
     link_t = SiteScrubber(SITE_Q, LINK_Q, LOG_Q, args.recursive)
     link_t.start()
 
-    LOG_Q.put("Starting LinkFilter thread")
+    LOG_Q.put({"level": "debug", "message": "Starting LinkFilter thread"})
     proxy_t = LinkFilter(LINK_Q, FETCH_Q, LOG_Q, args.pattern)
     proxy_t.start()
 
-    LOG_Q.put("Starting LinkFetcher thread")
-    fetch_t = LinkFetcher(FETCH_Q, LOG_Q)
+    LOG_Q.put({"level": "debug", "message": "Starting LinkFetcher thread"})
+    fetch_t = LinkFetcher(FETCH_Q, LOG_Q, args.trim_lead)
     fetch_t.start()
 
     for url in args.urls:

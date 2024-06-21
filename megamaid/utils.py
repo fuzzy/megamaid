@@ -71,3 +71,15 @@ def normalize_url(url):
         return f'{parts[0]}://{re.sub("//", "/", parts[1])}'
     else:
         return re.sub("//", "/", f"{url}")
+
+
+# Humanize file sizes
+def humanize_bytes(b):
+    if b < 1024:
+        return f"{b}B"
+
+    s = ("B", "KB", "MB", "GB", "TB")
+    d = list(range(0, len(s)))
+    for r in d:
+        if b >= 1024**r and b <= (1024 ** (r + 1)):
+            return f"{b/(1024**r):.1f}{s[r]}"

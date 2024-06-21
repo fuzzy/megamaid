@@ -3,9 +3,6 @@ import os
 import time
 import threading
 
-# debugging information
-from inspect import currentframe, getframeinfo
-
 from urllib.parse import urlparse
 
 # Internal imports
@@ -23,32 +20,39 @@ YAY = "\033[1;36m!!!\033[0m"
 
 class LinkFetcher(threading.Thread):
 
-    def __init__(self, fetch_q, log_q, pattern=False):
+    def __init__(self, fetch_q, log_q, chop_l=False):
         threading.Thread.__init__(self)
         self.fetch_q = fetch_q
         self.log_q = log_q
-        self.pattern = pattern
+        if chop_l and type(chop_l) is int:
+            self.chop_l = chop_l
+        else:
+            self.chop_l = False
 
     def fetch(self, site):
         url = urlparse(site)
-        # check each element of the path and make sure the directories exist locally
-        if not os.path.exists(url.hostname + os.path.dirname(url.path)):
-            os.makedirs(url.hostname + os.path.dirname(url.path))
         _fetch = True
-        if os.path.isfile(url.hostname + url.path):
-            # if the file exists do a HEAD request and check the file sizes match against the local file
-            # if the file sizes don't match, download the file
+        tfn = url.hostname + url.path
+        if self.chop_l:
+            ofn = f'./{"/".join(tfn.split("/")[self.chop_l:])}'
+        else:
+            ofn = tfn
+
+        if not os.path.exists(os.path.dirname(ofn)):
+            os.makedirs(os.path.dirname(ofn))
+
+        if os.path.isfile(ofn):
             con_l = int(http_head(site).getheader("Content-Length"))
-            loc_l = int(os.stat(url.hostname + url.path).st_size)
-            frameinfo = getframeinfo(currentframe())
+            loc_l = int(os.stat(ofn).st_size)
             if con_l == loc_l:
                 _fetch = False
 
         if _fetch:
-            with open(url.hostname + url.path, "wb+") as fp:
+            with open(ofn, "wb+") as fp:
                 fp.write(http_get(site))
 
-            self.log_q.put(f"DLOAD {site}")
+            sz = humanize_bytes(os.stat(ofn).st_size)
+            self.log_q.put(f"Saved {ofn} ({sz})")
 
     def run(self):
         while True:
