@@ -4,8 +4,12 @@
 import re
 import threading
 
+# URL and HTML parsing
 from urllib.parse import urlparse
 from html.parser import HTMLParser
+
+# network clients
+from ftplib import FTP, error_reply
 from http.client import HTTPSConnection
 
 # Internal imports
@@ -45,6 +49,38 @@ class LinkParser(HTMLParser):
             else:
                 url = normalize_url(f"{self.site}/{attrs[0][1]}")
                 self.link_q.put(url)
+
+
+# a class that takes a ftp URI, parses it, and beings to walk
+# the ftp site recursively from that point and send all
+# links to files into a queue, including the full URI
+
+
+class FtpWalker:
+
+    def __init__(self, uri, link_q):
+        self.uri = uri
+        self.link_q = link_q
+
+    def walk(self):
+        parsed = urlparse(self.uri)
+        ftp = FTP(parsed.netloc)
+        ftp.login()
+        ftp.cwd(parsed.path)
+        self._walk(ftp)
+        ftp.quit()
+
+    def _walk(self, ftp):
+        for item in ftp.nlst():
+            try:
+                ftp.cwd(item)
+                self._walk(ftp)
+            except error_reply:
+                continue
+            except Exception as e:
+                self.link_q.put(f"ftp://{ftp.host}{ftp.pwd()}/{item}")
+                continue
+            ftp.cwd("..")
 
 
 class LinkFilter(threading.Thread):
@@ -87,14 +123,19 @@ class SiteScrubber(threading.Thread):
     def run(self):
         while True:
             site = self.site_q.get()
-            parser = LinkParser()
-            if site == "EXIT":
-                self.site_q.put("EXIT")
-                self.link_q.put("EXIT")
-                return
-            parser.site = site
-            parser.site_q = self.site_q
-            parser.link_q = self.link_q
-            parser.log_q = self.log_q
-            parser.recursive = self.recursive
-            parser.feed(http_get(site).decode("utf-8"))
+            scheme = urlparse(site).scheme
+            if scheme in ("http", "https"):
+                parser = LinkParser()
+                if site == "EXIT":
+                    self.site_q.put("EXIT")
+                    self.link_q.put("EXIT")
+                    return
+                parser.site = site
+                parser.site_q = self.site_q
+                parser.link_q = self.link_q
+                parser.log_q = self.log_q
+                parser.recursive = self.recursive
+                parser.feed(http_get(site).decode("utf-8"))
+            elif scheme == "ftp":
+                worker = FtpWalker(site, self.link_q)
+                worker.walk()

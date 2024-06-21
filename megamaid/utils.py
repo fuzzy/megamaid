@@ -1,8 +1,18 @@
 import os
 import re
 
+from ftplib import FTP
 from urllib.parse import urlparse
 from http.client import HTTPConnection, HTTPSConnection
+
+
+def ftp_get(site, fp):
+    url = urlparse(site)
+    with FTP(url.netloc) as ftp:
+        ftp.login()
+        ftp.cwd(os.path.dirname(url.path))
+        ftp.retrbinary(f"RETR {os.path.basename(url.path)}", fp.write)
+        ftp.quit()
 
 
 def http_get(site):

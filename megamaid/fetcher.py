@@ -32,7 +32,12 @@ class LinkFetcher(threading.Thread):
     def fetch(self, site):
         url = urlparse(site)
         _fetch = True
-        tfn = url.hostname + url.path
+        try:
+            tfn = url.hostname + url.path
+        except TypeError:
+            self.log_q.put(f"Failed to parse {site}")
+            return
+
         if self.chop_l:
             ofn = f'./{"/".join(tfn.split("/")[self.chop_l:])}'
         else:
@@ -42,14 +47,18 @@ class LinkFetcher(threading.Thread):
             os.makedirs(os.path.dirname(ofn))
 
         if os.path.isfile(ofn):
-            con_l = int(http_head(site).getheader("Content-Length"))
-            loc_l = int(os.stat(ofn).st_size)
-            if con_l == loc_l:
-                _fetch = False
+            if url.scheme in ("http", "https"):
+                con_l = int(http_head(site).getheader("Content-Length"))
+                loc_l = int(os.stat(ofn).st_size)
+                if con_l == loc_l:
+                    _fetch = False
 
         if _fetch:
             with open(ofn, "wb+") as fp:
-                fp.write(http_get(site))
+                if url.scheme in ("http", "https"):
+                    fp.write(http_get(site))
+                elif url.scheme == "ftp":
+                    ftp_get(site, fp)
 
             sz = humanize_bytes(os.stat(ofn).st_size)
             self.log_q.put(f"Saved {ofn} ({sz})")
