@@ -8,6 +8,22 @@ expressions across an arbitrary number of sites.
 
 Currently it supports HTTP(s) with or with out a proxy. FTP support is planned.
 
+## Usage
+
+```
+usage: megamaid.py [-h] [-p RE [RE ...]] [-r] [-tL N] URL [URL ...]
+
+positional arguments:
+  URL                   URL(s) to traverse.
+
+options:
+  -h, --help            show this help message and exit
+  -p RE [RE ...], --pattern RE [RE ...]
+                        Specify a pattern to match against links.
+  -r, --recursive       Recursively fetch files from the same site.
+  -tL N, --trim-lead N  Strip `N` leading components from the output path.
+```
+
 
 ## Examples
 
