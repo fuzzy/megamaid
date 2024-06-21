@@ -74,11 +74,13 @@ class LinkFilter(threading.Thread):
                 self.fetch_q.put("EXIT")
                 return
             # print(f"{IN} {_L}LINK_Q {__name__:20} {frameinfo.lineno:4} {link}{_E}")
-            if self.pattern and re.compile(self.pattern).match(link):
-                # print(
-                #     f"{YAY} {_C}FETCH_Q {__name__:20} {frameinfo.lineno:4} {link}{_E}"
-                # )
-                self.fetch_q.put(link)
+            if self.pattern:
+                for patt in self.pattern:
+                    if re.compile(patt).match(link):
+                        # print(
+                        #     f"{YAY} {_C}FETCH_Q {__name__:20} {frameinfo.lineno:4} {link}{_E}"
+                        # )
+                        self.fetch_q.put(link)
             elif not self.pattern:
                 # print(
                 #     f"{YAY} {_C}FETCH_Q {__name__:20} {frameinfo.lineno:4} {link}{_E}"

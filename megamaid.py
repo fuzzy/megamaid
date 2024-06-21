@@ -63,7 +63,7 @@ if __name__ == "__main__":
         metavar="RE",
         type=str,
         default=False,
-        # nargs="+",
+        nargs="+",
         help="Specify a pattern to match against links.",
     )
     parser.add_argument(
