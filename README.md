@@ -60,9 +60,18 @@ media I was missing! (Dramatization)
 So if I want to be more explicit with what I get from the OpenBSD mirror, as well as chop off the leading hostname
 directory, I can pull out and modify that pattern:
 
+```sh
+./megamaid.py -tL 1 \
+ -p '.*(FreeBSD-[0-9].*|NetBSD-[0-9].*)\.(iso|img)$' # FreeBSD and NetBSD install media \
+ '^.*(linux-[0-9].*\.0\.tar|patch-[0-9]*\.[0-9]*\.[0-9]*)\.xz$' # Linux kernel source and patches \
+ '^.*(install|floppy|inst|kc|cd|cdrom|upgr|upgrade|floppy[A-Z])[0-9][0-9]\.(fs|img|iso)$' # OpenBSD Install media \
+ -r https://ftp.usa.openbsd.org/pub/OpenBSD/ \
+ http://ftp.freebsd.org/pub/FreeBSD/releases/ISO-IMAGES/ \
+ http://cdn.netbsd.org/pub/NetBSD/ \
+ https://ftp.mirrorservice.org/sites/ftp.kernel.org/pub/linux/kernel/
 ```
-$ ./megamaid.py -tL 1 -p '.*(FreeBSD-[0-9].*|NetBSD-[0-9].*)\.(iso|img)$' '^.*(linux-[0-9].*\.0\.tar|patch-[0-9]*\.[0-9]*\.[0-9]*)\.xz$' '^.*(install|floppy|inst|kc|cd|cdrom|upgr|upgrade|floppy[A-Z])[0-9][0-9]\.(fs|img|iso)$' -r https://ftp.usa.openbsd.org/pub/OpenBSD/ http://ftp.freebsd.org/pub/FreeBSD/releases/ISO-IMAGES/ http://cdn.netbsd.org/pub/NetBSD/ https://ftp.mirrorservice.org/sites/ftp.kernel.org/pub/linux/kernel/
-```
+
+And there you go, all ready for public consumption and stuff.
 
 ## Conclusion
 
