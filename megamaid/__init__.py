@@ -4,7 +4,6 @@
 
 from megamaid.edict import *
 from megamaid.utils import *
-from megamaid.logger import *
 from megamaid.fetcher import *
 from megamaid.grabber import *
 

@@ -3,6 +3,7 @@
 # Stdlib imports
 import re
 import threading
+from queue import Empty
 
 # URL and HTML parsing
 from urllib.parse import urlparse
@@ -14,16 +15,6 @@ from http.client import HTTPSConnection
 
 # Internal imports
 from megamaid.utils import *
-
-_S = "\033[0;31m"
-_L = "\033[1;33m"
-_F = "\033[1;32m"
-_C = "\033[1;36m"
-_E = "\033[0m"
-
-IN = "\033[1;35m>>>\033[0m"
-OUT = "\033[1;34m<<<\033[0m"
-YAY = "\033[1;36m!!!\033[0m"
 
 
 class LinkParser(HTMLParser):
@@ -49,11 +40,7 @@ class LinkParser(HTMLParser):
             else:
                 url = normalize_url(f"{self.site}/{attrs[0][1]}")
                 self.link_q.put(url)
-
-
-# a class that takes a ftp URI, parses it, and beings to walk
-# the ftp site recursively from that point and send all
-# links to files into a queue, including the full URI
+                self.log_q.debug(f"LinkParser().handle_starttag(): {url}")
 
 
 class FtpWalker:
@@ -78,6 +65,9 @@ class FtpWalker:
             except error_reply:
                 continue
             except Exception as e:
+                self.log_q.debug(
+                    f"FtpWalker().walk(): ftp://{ftp.host}{ftp.pwd()}/{item}"
+                )
                 self.link_q.put(f"ftp://{ftp.host}{ftp.pwd()}/{item}")
                 continue
             ftp.cwd("..")
@@ -85,57 +75,78 @@ class FtpWalker:
 
 class LinkFilter(threading.Thread):
 
-    def __init__(self, link_q, fetch_q, log_q, pattern=False):
-        threading.Thread.__init__(self)
+    def __init__(self, link_q, fetch_q, log_q, sig_q, pattern=False):
+        threading.Thread.__init__(self, daemon=True)
         self.link_q = link_q
         self.fetch_q = fetch_q
         self.log_q = log_q
+        self.sig_q = sig_q
         self.pattern = pattern
 
     def run(self):
         while True:
-            link = self.link_q.get()
-            if link == "EXIT":
-                self.link_q.put("EXIT")
-                self.fetch_q.put("EXIT")
+            try:
+                sig = self.sig_q.get(True, 0.1)
+                self.log_q.info("LinkFilter() thread exit")
+                self.sig_q.task_done()
+                self.sig_q.put(True)
                 return
-            if self.pattern:
-                for patt in self.pattern:
-                    if re.compile(patt).match(link):
-                        self.log_q.put(
-                            {"level": "debug", "message": f"-> FETCH_Q {link}"}
-                        )
-                        self.fetch_q.put(link)
-            elif not self.pattern:
-                self.log_q.put({"level": "debug", "message": f"-> FETCH_Q {link}"})
-                self.fetch_q.put(link)
+            except Empty:
+                pass
+
+            try:
+                link = self.link_q.get(True, 0.1)
+                if self.pattern:
+                    for patt in self.pattern:
+                        if re.compile(patt).match(link):
+                            self.log_q.debug(
+                                f"LinkFilter().run()[1]: -> FETCH_Q {link}"
+                            )
+                            self.fetch_q.put(link)
+                elif not self.pattern:
+                    self.log_q.debug(f"LinkFilter().run()[2]]: -> FETCH_Q {link}")
+                    self.fetch_q.put(link)
+                self.link_q.task_done()
+            except Empty:
+                pass
 
 
 class SiteScrubber(threading.Thread):
 
-    def __init__(self, site_q, link_q, log_q, recursive=False):
-        threading.Thread.__init__(self)
+    def __init__(self, site_q, link_q, log_q, sig_q, recursive=False):
+        threading.Thread.__init__(self, daemon=True)
         self.site_q = site_q
         self.link_q = link_q
         self.log_q = log_q
+        self.sig_q = sig_q
         self.recursive = recursive
 
     def run(self):
         while True:
-            site = self.site_q.get()
-            scheme = urlparse(site).scheme
-            if scheme in ("http", "https"):
-                parser = LinkParser()
-                if site == "EXIT":
-                    self.site_q.put("EXIT")
-                    self.link_q.put("EXIT")
-                    return
-                parser.site = site
-                parser.site_q = self.site_q
-                parser.link_q = self.link_q
-                parser.log_q = self.log_q
-                parser.recursive = self.recursive
-                parser.feed(http_get(site).decode("utf-8"))
-            elif scheme == "ftp":
-                worker = FtpWalker(site, self.link_q)
-                worker.walk()
+
+            try:
+                sig = self.sig_q.get(True, 0.1)
+                self.log_q.info("SiteScrubber() thread exit")
+                self.sig_q.task_done()
+                self.sig_q.put(True)
+                return
+            except Empty:
+                pass
+
+            try:
+                site = self.site_q.get(True, 0.1)
+                scheme = urlparse(site).scheme
+                if scheme in ("http", "https"):
+                    parser = LinkParser()
+                    parser.site = site
+                    parser.site_q = self.site_q
+                    parser.link_q = self.link_q
+                    parser.log_q = self.log_q
+                    parser.recursive = self.recursive
+                    parser.feed(http_get(site).decode("utf-8"))
+                elif scheme == "ftp":
+                    worker = FtpWalker(site, self.link_q)
+                    worker.walk()
+                self.site_q.task_done()
+            except Empty:
+                pass

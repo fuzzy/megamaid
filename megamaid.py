@@ -4,10 +4,10 @@
 import os
 import sys
 import time
+import logging
 import argparse
 
-from queue import Queue
-from inspect import currentframe, getframeinfo
+from queue import Queue, LifoQueue
 
 # Internal imports
 from megamaid import *
@@ -18,46 +18,49 @@ from megamaid import *
 SITE_Q = Queue()
 LINK_Q = Queue()
 FETCH_Q = Queue()
-LOG_Q = Queue()
+SIG_Q = Queue()
+LOG_Q = logging.getLogger("MegaMaid")
 
 
 def main(args):
-    logger_t = Logger(LOG_Q, args.tui, args.gui)
-    logger_t.start()
+    LOG_Q.info("Starting SiteScrubber thread")
+    link_t = []
+    for i in range(5):
+        link_t.append(SiteScrubber(SITE_Q, LINK_Q, LOG_Q, SIG_Q, args.recursive))
+        link_t[-1].start()
 
-    LOG_Q.put({"level": "debug", "message": "Starting SiteScrubber thread"})
-    link_t = SiteScrubber(SITE_Q, LINK_Q, LOG_Q, args.recursive)
-    link_t.start()
+    LOG_Q.info("Starting LinkFilter thread")
+    proxy_t = []
+    for i in range(20):
+        proxy_t.append(LinkFilter(LINK_Q, FETCH_Q, LOG_Q, SIG_Q, args.pattern))
+        proxy_t[-1].start()
 
-    LOG_Q.put({"level": "debug", "message": "Starting LinkFilter thread"})
-    proxy_t = LinkFilter(LINK_Q, FETCH_Q, LOG_Q, args.pattern)
-    proxy_t.start()
-
-    LOG_Q.put({"level": "debug", "message": "Starting LinkFetcher thread"})
-    fetch_t = LinkFetcher(FETCH_Q, LOG_Q, args.trim_lead)
-    fetch_t.start()
+    LOG_Q.info("Starting LinkFetcher thread")
+    fetch_t = []
+    for i in range(1):
+        fetch_t.append(LinkFetcher(FETCH_Q, LOG_Q, SIG_Q, args.trim_lead))
+        fetch_t[-1].start()
 
     for url in args.urls:
-        LOG_Q.put(f"-> SITE_Q {url}")
+        LOG_Q.info(f"-> SITE_Q {url}")
         SITE_Q.put(url)
 
     # Give the threads a bit to get started
     time.sleep(2)
     try:
-        # drop in our exit signal
-        SITE_Q.put("EXIT")
 
-        # and wait for the cleanup
-        link_t.join()
-        proxy_t.join()
-        fetch_t.join()
+        SITE_Q.join()
+        LINK_Q.join()
+        FETCH_Q.join()
 
-        # and finally, kill the logger
-        LOG_Q.put("EXIT")
-        logger_t.join()
+        SIG_Q.put(True)
+
+        # Wait for the threads to exit
+        for grp in (link_t, proxy_t, fetch_t):
+            for t in grp:
+                t.join()
+
     except:
-        SITE_Q.put("EXIT")
-        LOG_Q.put("EXIT")
         sys.exit(1)
 
 
@@ -74,16 +77,13 @@ if __name__ == "__main__":
         help="Specify a pattern to match against links.",
     )
     parser.add_argument(
+        "-d", "--debug", action="store_true", help="Enable debug output."
+    )
+    parser.add_argument(
         "-r",
         "--recursive",
         action="store_true",
         help="Recursively fetch files from the same site.",
-    )
-    parser.add_argument(
-        "-tH",
-        "--trim-host",
-        action="store_true",
-        help="Do not create host directory for output.",
     )
     parser.add_argument(
         "-tL",
@@ -111,4 +111,14 @@ if __name__ == "__main__":
         "urls", type=str, metavar="URL", nargs="+", help="URL(s) to traverse."
     )
 
-    main(parser.parse_args())
+    args = parser.parse_args()
+    if args.debug:
+        logging.basicConfig(filename="megamaid.log", level=logging.DEBUG)
+    else:
+        logging.basicConfig(filename="megamaid.log", level=logging.INFO)
+
+    main(args)
+
+    # If we aren't debugging get rid of the log
+    if not args.debug:
+        os.unlink("megamaid.log")
