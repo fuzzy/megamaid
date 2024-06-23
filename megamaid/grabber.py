@@ -2,6 +2,7 @@
 
 # Stdlib imports
 import re
+import time
 import threading
 from queue import Empty
 
@@ -23,6 +24,7 @@ class LinkParser(HTMLParser):
     site_q = None
     link_q = None
     log_q = None
+    gui_q = None
     recursive = False
 
     def handle_starttag(self, tag, attrs):
@@ -41,12 +43,15 @@ class LinkParser(HTMLParser):
                 url = normalize_url(f"{self.site}/{attrs[0][1]}")
                 self.link_q.put(url)
                 self.log_q.debug(f"LinkParser().handle_starttag(): {url}")
+                self.gui_q.put({"link": 1})
 
 
 class FtpWalker:
 
-    def __init__(self, uri, link_q):
+    def __init__(self, uri, link_q, log_q, gui_q):
         self.uri = uri
+        self.log_q = log_q
+        self.gui_q = gui_q
         self.link_q = link_q
 
     def walk(self):
@@ -69,24 +74,26 @@ class FtpWalker:
                     f"FtpWalker().walk(): ftp://{ftp.host}{ftp.pwd()}/{item}"
                 )
                 self.link_q.put(f"ftp://{ftp.host}{ftp.pwd()}/{item}")
+                self.gui_q.put({"link": 1})
                 continue
             ftp.cwd("..")
 
 
 class LinkFilter(threading.Thread):
 
-    def __init__(self, link_q, fetch_q, log_q, sig_q, pattern=False):
+    def __init__(self, link_q, fetch_q, log_q, sig_q, gui_q, pattern=False):
         threading.Thread.__init__(self, daemon=True)
         self.link_q = link_q
         self.fetch_q = fetch_q
         self.log_q = log_q
         self.sig_q = sig_q
+        self.gui_q = gui_q
         self.pattern = pattern
 
     def run(self):
         while True:
             try:
-                sig = self.sig_q.get(True, 0.1)
+                sig = self.sig_q.get(False)
                 self.log_q.info("LinkFilter() thread exit")
                 self.sig_q.task_done()
                 self.sig_q.put(True)
@@ -94,8 +101,9 @@ class LinkFilter(threading.Thread):
             except Empty:
                 pass
 
+            st = time.time()
             try:
-                link = self.link_q.get(True, 0.1)
+                link = self.link_q.get(True, 10)
                 if self.pattern:
                     for patt in self.pattern:
                         if re.compile(patt).match(link):
@@ -103,29 +111,36 @@ class LinkFilter(threading.Thread):
                                 f"LinkFilter().run()[1]: -> FETCH_Q {link}"
                             )
                             self.fetch_q.put(link)
+                            self.gui_q.put({"match": 1})
                 elif not self.pattern:
                     self.log_q.debug(f"LinkFilter().run()[2]]: -> FETCH_Q {link}")
                     self.fetch_q.put(link)
+                    self.gui_q.put({"match": 1})
                 self.link_q.task_done()
             except Empty:
+                if time.time() - st >= 15:
+                    self.log_q.info("No more work left. LinkFilter thread exiting.")
+                    return
+                st = time.time()
                 pass
 
 
 class SiteScrubber(threading.Thread):
 
-    def __init__(self, site_q, link_q, log_q, sig_q, recursive=False):
+    def __init__(self, site_q, link_q, log_q, sig_q, gui_q, recursive=False):
         threading.Thread.__init__(self, daemon=True)
         self.site_q = site_q
         self.link_q = link_q
         self.log_q = log_q
         self.sig_q = sig_q
+        self.gui_q = gui_q
         self.recursive = recursive
 
     def run(self):
         while True:
 
             try:
-                sig = self.sig_q.get(True, 0.1)
+                sig = self.sig_q.get(False)
                 self.log_q.info("SiteScrubber() thread exit")
                 self.sig_q.task_done()
                 self.sig_q.put(True)
@@ -133,8 +148,10 @@ class SiteScrubber(threading.Thread):
             except Empty:
                 pass
 
+            st = time.time()
             try:
-                site = self.site_q.get(True, 0.1)
+                st = time.time()
+                site = self.site_q.get(True, 10)
                 scheme = urlparse(site).scheme
                 if scheme in ("http", "https"):
                     parser = LinkParser()
@@ -142,11 +159,16 @@ class SiteScrubber(threading.Thread):
                     parser.site_q = self.site_q
                     parser.link_q = self.link_q
                     parser.log_q = self.log_q
+                    parser.gui_q = self.gui_q
                     parser.recursive = self.recursive
                     parser.feed(http_get(site).decode("utf-8"))
                 elif scheme == "ftp":
-                    worker = FtpWalker(site, self.link_q)
+                    worker = FtpWalker(site, self.link_q, self.log_q, self.gui_q)
                     worker.walk()
                 self.site_q.task_done()
             except Empty:
+                if time.time() - st >= 15:
+                    self.log_q.info("No work left. SiteScrubber thread exiting.")
+                    return
+                st = time.time()
                 pass
