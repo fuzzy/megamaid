@@ -104,16 +104,16 @@ class LinkFilter(threading.Thread):
             st = time.time()
             try:
                 link = self.link_q.get(True, 10)
+                shipit = False
                 if self.pattern:
                     for patt in self.pattern:
                         if re.compile(patt).match(link):
-                            self.log_q.debug(
-                                f"LinkFilter().run()[1]: -> FETCH_Q {link}"
-                            )
-                            self.fetch_q.put(link)
-                            self.gui_q.put({"match": 1})
+                            shipit = True
                 elif not self.pattern:
-                    self.log_q.debug(f"LinkFilter().run()[2]]: -> FETCH_Q {link}")
+                    shipit = True
+
+                if shipit and type(link) == str:
+                    self.log_q.debug(f"LinkFilter().run()[1]: -> FETCH_Q {link}")
                     self.fetch_q.put(link)
                     self.gui_q.put({"match": 1})
                 self.link_q.task_done()
@@ -122,7 +122,6 @@ class LinkFilter(threading.Thread):
                     self.log_q.info("No more work left. LinkFilter thread exiting.")
                     return
                 st = time.time()
-                pass
 
 
 class SiteScrubber(threading.Thread):
@@ -151,7 +150,7 @@ class SiteScrubber(threading.Thread):
             st = time.time()
             try:
                 st = time.time()
-                site = self.site_q.get(True, 10)
+                site = self.site_q.get(True, 5)
                 scheme = urlparse(site).scheme
                 if scheme in ("http", "https"):
                     parser = LinkParser()
@@ -171,4 +170,3 @@ class SiteScrubber(threading.Thread):
                     self.log_q.info("No work left. SiteScrubber thread exiting.")
                     return
                 st = time.time()
-                pass

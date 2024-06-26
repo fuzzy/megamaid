@@ -1,5 +1,6 @@
 # Stdlib imports
 import os
+import time
 import threading
 from queue import Empty
 
@@ -68,24 +69,31 @@ class LinkFetcher(threading.Thread):
                 self.sig_q.get(False)
                 self.log_q.info("LinkFetcher() thread exit")
                 self.sig_q.task_done()
+                self.gui_q.put(True)
                 self.sig_q.put(True)
                 return
             except Empty:
                 pass
 
+            st = time.time()
             try:
-                site = self.fetch_q.get()
-                out, ex = self.fetch(site)
+                site = self.fetch_q.get(True, 15)
+                if type(site) is str:
+                    out, ex = self.fetch(site)
+                    # self.log_q.info(f"LinkFetcher().fetch(): Saved {out}")
+                    sz = os.stat(out).st_size
+                    tag = "(pre)" if ex else "(new)"
+                    self.gui_q.put(
+                        {
+                            "size": sz,
+                            "have": 1,
+                            "filename": f"{out} ({humanize_bytes(sz)}) {tag}",
+                        }
+                    )
                 self.fetch_q.task_done()
-                # self.log_q.info(f"LinkFetcher().fetch(): Saved {out}")
-                sz = os.stat(out).st_size
-                tag = "(pre)" if ex else "(new)"
-                self.gui_q.put(
-                    {
-                        "size": sz,
-                        "have": 1,
-                        "filename": f"{out} ({humanize_bytes(sz)}) {tag}",
-                    }
-                )
             except Empty:
-                pass
+                if time.time() - st >= 15:
+                    self.log_q.info("No work left. LinkFetcher thread exiting.")
+                    self.gui_q.put(True)
+                    return
+                st = time.time()

@@ -9,7 +9,7 @@ import logging
 import argparse
 import threading
 
-from queue import Queue, LifoQueue
+from queue import Queue, Empty
 
 # Internal imports
 from megamaid import *
@@ -24,6 +24,7 @@ GUI_Q = Queue()
 SIG_Q = Queue()
 LOG_Q = logging.getLogger("MegaMaid")
 
+STATS_EXIT = False
 STATS = Edict(
     **{
         "site": 0,
@@ -59,11 +60,17 @@ class Updater(threading.Thread):
 
             try:
                 update = self._event_q.get(False)
-                for k, v in update.items():
-                    if k == "filename":
-                        STATS.lines.append(v)
-                    elif k in STATS.keys():
-                        STATS[k] += v
+                if type(update) is dict:
+                    for k, v in update.items():
+                        if k == "filename":
+                            STATS.lines.append(v)
+                        elif k in STATS.keys():
+                            STATS[k] += v
+                elif type(update) is bool:
+                    self._log.info("Updater() thread exit")
+                    STATS_EXIT = True
+                    return
+                self._event_q.task_done()
             except Empty:
                 pass
 
@@ -166,7 +173,7 @@ class Tui:
             perc = int((float(STATS.have) / float(STATS.match)) * 100.0)
         else:
             perc = 0
-        psze = int((x - 9) * (perc / 100))
+        psze = int((x - 20) * (perc / 100))
         ppad = " " * (x - (20 + psze))
         self._stdscr.addstr(y - 2, 3, f"{perc:3}% ")
         self._stdscr.addstr(y - 2, 8, " " * psze, curses.color_pair(21))
@@ -182,16 +189,7 @@ class Tui:
 
     def run(self):
         stamp = time.time()
-        while True:
-            try:
-                self._sig_q.get(True, 0.25)
-                self._log.info("Tui() thread exit")
-                self._sig_q.task_done()
-                self._sig_q.put(True)
-                return
-            except Empty:
-                pass
-
+        while not STATS_EXIT:
             try:
                 if float(time.time()) - float(stamp) >= 0.5:
                     self.draw_screen()
@@ -213,8 +211,9 @@ def main(args):
         GUI_Q.put({"site": 1})
 
     LOG_Q.info("Starting Updater thread")
-    updater_t = Updater(GUI_Q, SIG_Q, LOG_Q)
-    updater_t.start()
+    updater_t = []
+    updater_t.append(Updater(GUI_Q, SIG_Q, LOG_Q))
+    updater_t[-1].start()
 
     LOG_Q.info("Starting SiteScrubber thread")
     link_t = []
@@ -229,19 +228,37 @@ def main(args):
         proxy_t[-1].start()
 
     LOG_Q.info("Starting LinkFetcher thread")
-    fetch_t = LinkFetcher(FETCH_Q, LOG_Q, SIG_Q, GUI_Q, args.trim_lead)
-    fetch_t.start()
+    fetch_t = []
+    for i in range(1):
+        fetch_t.append(LinkFetcher(FETCH_Q, LOG_Q, SIG_Q, GUI_Q, args.trim_lead))
+        fetch_t[-1].start()
 
     if args.tui:
-        curses.wrapper(tui)
+        tui_t = curses.wrapper(tui)
+    else:
+        while True:
+            st = time.time()
+            try:
+                GUI_Q.get(True, 15)
+                GUI_Q.task_done()
+            except Empty:
+                if time.time() - st >= 15:
+                    LOG_Q.info("main program exiting.")
+                    break
+                st = time.time()
 
     # Give the threads a bit to get started
     time.sleep(2)
     try:
 
+        LOG_Q.warning("SITE_Q.join()")
         SITE_Q.join()
+        LOG_Q.warning("LINK_Q.join()")
         LINK_Q.join()
+        LOG_Q.warning("FETCH_Q.join()")
         FETCH_Q.join()
+        if args.tui:
+            tui_t.join()
 
         SIG_Q.put(True)
 
@@ -251,6 +268,18 @@ def main(args):
                 t.join()
 
     except:
+        SIG_Q.put(True)
+        SITE_Q.join()
+        LINK_Q.join()
+        FETCH_Q.join()
+        if args.tui:
+            tui_t.join()
+
+        # Wait for the threads to exit
+        for grp in (link_t, proxy_t, fetch_t, updater_t):
+            for t in grp:
+                t.join()
+
         sys.exit(1)
 
 

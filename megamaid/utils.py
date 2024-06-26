@@ -1,9 +1,35 @@
 import os
 import re
+import logging
 
 from ftplib import FTP
 from urllib.parse import urlparse
 from http.client import HTTPConnection, HTTPSConnection
+
+
+def log_setup(name, level=logging.INFO, fname=False, fmatter=False):
+    retv = logging.getLogger(name)
+    retv.setLevel(level)
+
+    # setup our logfile
+    if not fname:
+        fname = f"/tmp/megamaid-{str(name).lower()}.log"
+    fh = logging.FileHandler(fname)
+    fh.setLevel(level)
+
+    # and our default formatter
+    if not fmatter:
+        fmatter = logging.Formatter("%(asctime)s %(name)s %(levelname)s - %(message)s")
+    fh.setFormatter(fmatter)
+    retv.addHandler(fh)
+
+    return retv
+
+
+def log_cleanup(name):
+    ln = f"/tmp/megamaid-{str(name).lower()}.log"
+    if os.path.isfile(ln):
+        os.unlink(ln)
 
 
 def ftp_get(site, fp):

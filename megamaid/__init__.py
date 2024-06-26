@@ -24,7 +24,8 @@ METADATA = Edict(
         "version": "0.1",
         "patchlevel": "0",
         "author": "Mike 'Fuzzy' Partin",
+        "email": "mike.partin32@gmail.com",
         "license": "MIT",
-        "copyright": "2020",
+        "copyright": "2024",
     }
 )
