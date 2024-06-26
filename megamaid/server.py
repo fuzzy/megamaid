@@ -34,9 +34,6 @@ import logging
 # Internal imports
 from megamaid.utils import log_setup
 
-# Globals
-SOCK_FILE = "/tmp/megamaid-{name}.sock"
-
 
 class MaidServer:
     """
@@ -173,6 +170,8 @@ class SockServer(MaidServer):
     Unix domain socket server class that extends MaidServer.
     """
 
+    SOCK_FILE = "/tmp/megamaid-{name}.sock"
+
     def __init__(self, name=False, listeners=25):
         """
         Initialize the SockServer.
@@ -220,4 +219,4 @@ class SockServer(MaidServer):
             str: The formatted socket file path.
         """
 
-        return SOCK_FILE.format(name=self._name)
+        return self.SOCK_FILE.format(name=self._name)
